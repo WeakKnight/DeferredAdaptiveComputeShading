@@ -60,6 +60,8 @@ void main(uint tid: SV_DispatchThreadID, uint local_index: SV_GroupIndex)
 #if 0
     int2 coord = linearIdToCoord(tid, gScreenSize);
     gOutputTexture[coord] = shade(coord);
+#elif 0
+
 #else
 
     // warp内的第一个thread则初始化队列
@@ -112,7 +114,7 @@ void main(uint tid: SV_DispatchThreadID, uint local_index: SV_GroupIndex)
                 gOutputTexture[coord] = color;
 
                 GroupMemoryBarrierWithGroupSync();
-                
+
                 if (local_index == 0)
                 {
                     sq_offset = (sq_offset + op_active);
