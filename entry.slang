@@ -11,24 +11,12 @@ ParameterBlock<Processor> processor;
 
 [shader("compute")]
 [numthreads(32, 1, 1)]
-void compute_main(uint3 tid: SV_DispatchThreadID)
+void main(uint3 tid: SV_DispatchThreadID)
 {
     uint index = tid.x;
-    if (index < 1024)
-        processor.process(index);
-}
+    uint waveSum = WaveActiveSum(index);
 
-[shader("compute")]
-[numthreads(32, 1, 1)]
-void main2(
-    uint3 tid: SV_DispatchThreadID,
-    uniform uint N,
-    uniform StructuredBuffer<uint> a,
-    uniform StructuredBuffer<uint> b,
-    uniform RWStructuredBuffer<uint> c
-)
-{
-    uint index = tid.x;
-    if (index < N)
-        c[index] = a[index] + b[index];
+    if (index < 1024)
+        processor.c[index] = waveSum;
+        // processor.process(index);
 }

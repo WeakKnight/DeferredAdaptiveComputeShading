@@ -11,7 +11,7 @@ device = spy.Device(
     compiler_options={"include_paths": [EXAMPLE_DIR]},
 )
 
-program = device.load_program("simple_compute.slang", ["compute_main"])
+program = device.load_program("entry.slang", ["main"])
 kernel = device.create_compute_kernel(program)
 
 N = 1024
