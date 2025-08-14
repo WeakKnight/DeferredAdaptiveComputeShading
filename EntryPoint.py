@@ -24,6 +24,9 @@ gbufferPassKernel = device.create_compute_kernel(gbufferPassProgram)
 lightingPassProgram = device.load_program("LightingPass.slang", ["main"])
 lightingPassKernel = device.create_compute_kernel(lightingPassProgram)
 
+adaptiveLightingPassProgram = device.load_program("AdaptiveLightingPass.slang", ["main"])
+adaptiveLightingPassKernel = device.create_compute_kernel(adaptiveLightingPassProgram)
+
 screen_width = 1920
 screen_height = 1080
 
@@ -74,6 +77,10 @@ specularTex = device.create_texture(
     usage = spy.TextureUsage.shader_resource | spy.TextureUsage.unordered_access,
 )
 
+layoutScratchBuffer = device.create_buffer(usage = spy.BufferUsage.unordered_access|spy.BufferUsage.shader_resource, 
+                                           struct_size = 4, 
+                                           element_count = 32)
+
 command_encoder = device.create_command_encoder()
 with command_encoder.begin_compute_pass() as pass_encoder:
     # GBuffer Pass
@@ -96,18 +103,35 @@ with command_encoder.begin_compute_pass() as pass_encoder:
     pass_encoder.dispatch([screen_width, screen_height, 1])
 
     # Lighting Pass
-    shader_object = pass_encoder.bind_pipeline(lightingPassKernel.pipeline)
-    cursor = spy.ShaderCursor(shader_object)
+    if False: 
+        # Coherent
+        shader_object = pass_encoder.bind_pipeline(lightingPassKernel.pipeline)
+        cursor = spy.ShaderCursor(shader_object)
 
-    cursor.gScreenSize = spy.uint2(screen_width, screen_height)
+        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
 
-    cursor.gPositionTexture = posTex
-    cursor.gNormalTexture = normalTex
-    cursor.gDiffuseTexture = diffuseTex
-    cursor.gSpecularTexture = specularTex
-    cursor.gOutputTexture = resultTex
-    
-    pass_encoder.dispatch([screen_width, screen_height, 1])
+        cursor.gPositionTexture = posTex
+        cursor.gNormalTexture = normalTex
+        cursor.gDiffuseTexture = diffuseTex
+        cursor.gSpecularTexture = specularTex
+        cursor.gOutputTexture = resultTex
+        
+        pass_encoder.dispatch([screen_width, screen_height, 1])
+    else: 
+        # Adaptive
+        shader_object = pass_encoder.bind_pipeline(adaptiveLightingPassKernel.pipeline)
+        cursor = spy.ShaderCursor(shader_object)
+
+        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
+        cursor.gTotalPixelNum = screen_width * screen_height
+        cursor.gPositionTexture = posTex
+        cursor.gNormalTexture = normalTex
+        cursor.gDiffuseTexture = diffuseTex
+        cursor.gSpecularTexture = specularTex
+        cursor.gOutputTexture = resultTex
+        cursor.gLayoutScratch = layoutScratchBuffer
+        
+        pass_encoder.dispatch([screen_width * screen_height, 1, 1])
     
 device.submit_command_buffer(command_encoder.finish())
 device.wait_for_idle()
