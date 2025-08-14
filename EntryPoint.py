@@ -77,10 +77,14 @@ specularTex = device.create_texture(
     usage = spy.TextureUsage.shader_resource | spy.TextureUsage.unordered_access,
 )
 
-layoutScratchBuffer = device.create_buffer(usage = spy.BufferUsage.unordered_access|spy.BufferUsage.shader_resource, 
+layoutScratchBuffer = device.create_buffer(usage = 
+                                           spy.BufferUsage.unordered_access
+                                           |spy.BufferUsage.shader_resource
+                                           |spy.BufferUsage.copy_destination
+                                           |spy.BufferUsage.copy_source,
                                            struct_size = 4, 
-                                           element_count = 32)
-
+                                           element_count = 8,
+                                           data = np.array([0] * 8, dtype=np.uint32))
 command_encoder = device.create_command_encoder()
 with command_encoder.begin_compute_pass() as pass_encoder:
     # GBuffer Pass
