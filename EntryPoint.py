@@ -112,4 +112,4 @@ with command_encoder.begin_compute_pass() as pass_encoder:
 device.submit_command_buffer(command_encoder.finish())
 device.wait_for_idle()
 
-imageio.imwrite("out.png", resultTex.to_numpy())
+imageio.imwrite("Result.png", resultTex.to_numpy())
