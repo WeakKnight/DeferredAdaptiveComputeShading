@@ -24,7 +24,7 @@ gbufferPassKernel = device.create_compute_kernel(gbufferPassProgram)
 lightingPassProgram = device.load_program("LightingPass.slang", ["main"])
 lightingPassKernel = device.create_compute_kernel(lightingPassProgram)
 
-adaptiveLightingPassProgram = device.load_program("AdaptiveLightingPass.slang", ["main"])
+adaptiveLightingPassProgram = device.load_program("AdaptiveLightingPass.slang", ["pass0"])
 adaptiveLightingPassKernel = device.create_compute_kernel(adaptiveLightingPassProgram)
 
 screen_width = 1920
@@ -127,15 +127,13 @@ with command_encoder.begin_compute_pass() as pass_encoder:
         cursor = spy.ShaderCursor(shader_object)
 
         cursor.gScreenSize = spy.uint2(screen_width, screen_height)
-        cursor.gTotalPixelNum = screen_width * screen_height
         cursor.gPositionTexture = posTex
         cursor.gNormalTexture = normalTex
         cursor.gDiffuseTexture = diffuseTex
         cursor.gSpecularTexture = specularTex
         cursor.gOutputTexture = resultTex
-        cursor.gLayoutScratch = layoutScratchBuffer
         
-        pass_encoder.dispatch([screen_width * screen_height, 1, 1])
+        pass_encoder.dispatch(spy.uint3(int(screen_width / 4), int(screen_height / 4), 1))
     
 device.submit_command_buffer(command_encoder.finish())
 device.wait_for_idle()
