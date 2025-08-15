@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Workflow
 
-#### Pass 1
+#### Pass 0
 ⬜⬛⬛⬛<br/>
 ⬛⬛⬛⬛<br/>
 ⬛⬛⬛⬛<br/>
@@ -21,7 +21,7 @@ Access Pattern:
 2. Apply Pixel Offset <br/>
 3. Shade Target Pixel
 
-#### Pass 2
+#### Pass 1
 🟩⬛⬛⬛<br/>
 ⬛⬛⬛⬛<br/>
 ⬛⬛⬜⬛<br/>
@@ -36,7 +36,7 @@ Access Pattern:
 
 Interpolate between neighbors if (i + 2, j + 2), (i - 2, j + 2), (i + 2, j - 2), (i - 2, j - 2) are similar.
 
-#### Pass 3
+#### Pass 2
 🟩⬛⬜⬛<br/>
 ⬛⬛⬛⬛<br/>
 ⬜⬛🟩⬛<br/>
@@ -45,7 +45,7 @@ Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 2
 
 Interpolate between neighbors if (i + 2, j), (i - 2, j), (i, j - 2), (i, j + 2) are similar.
 
-#### Pass 4
+#### Pass 3
 ⬜⬛⬜⬛<br/>
 ⬛🟩⬛🟩<br/>
 ⬜⬛⬜⬛<br/>
@@ -54,7 +54,7 @@ Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 4
 
 Interpolate between neighbors if (i + 1, j + 1), (i - 1, j - 1), (i + 1, j - 1), (i - 1, j + 1) are similar.
 
-#### Pass 5
+#### Pass 4
 ⬜🟩⬜🟩<br/>
 🟩⬜🟩⬜<br/>
 ⬜🟩⬜🟩<br/>

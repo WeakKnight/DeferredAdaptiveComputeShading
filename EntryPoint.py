@@ -24,8 +24,16 @@ gbufferPassKernel = device.create_compute_kernel(gbufferPassProgram)
 lightingPassProgram = device.load_program("LightingPass.slang", ["main"])
 lightingPassKernel = device.create_compute_kernel(lightingPassProgram)
 
-adaptiveLightingPassProgram = device.load_program("AdaptiveLightingPass.slang", ["pass0"])
-adaptiveLightingPassKernel = device.create_compute_kernel(adaptiveLightingPassProgram)
+adaptiveLightingPass0Program = device.load_program("AdaptiveLightingPass.slang", ["pass0"])
+adaptiveLightingPass1Program = device.load_program("AdaptiveLightingPass.slang", ["pass1"])
+adaptiveLightingPass2Program = device.load_program("AdaptiveLightingPass.slang", ["pass2"])
+adaptiveLightingPass3Program = device.load_program("AdaptiveLightingPass.slang", ["pass3"])
+adaptiveLightingPass4Program = device.load_program("AdaptiveLightingPass.slang", ["pass4"])
+adaptiveLightingPass0Kernel = device.create_compute_kernel(adaptiveLightingPass0Program)
+adaptiveLightingPass1Kernel = device.create_compute_kernel(adaptiveLightingPass1Program)
+adaptiveLightingPass2Kernel = device.create_compute_kernel(adaptiveLightingPass2Program)
+adaptiveLightingPass3Kernel = device.create_compute_kernel(adaptiveLightingPass3Program)
+adaptiveLightingPass4Kernel = device.create_compute_kernel(adaptiveLightingPass4Program)
 
 screen_width = 1920
 screen_height = 1080
@@ -107,7 +115,7 @@ with command_encoder.begin_compute_pass() as pass_encoder:
     pass_encoder.dispatch([screen_width, screen_height, 1])
 
     # Lighting Pass
-    if False: 
+    if True: 
         # Coherent
         shader_object = pass_encoder.bind_pipeline(lightingPassKernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
@@ -123,7 +131,61 @@ with command_encoder.begin_compute_pass() as pass_encoder:
         pass_encoder.dispatch([screen_width, screen_height, 1])
     else: 
         # Adaptive
-        shader_object = pass_encoder.bind_pipeline(adaptiveLightingPassKernel.pipeline)
+
+        # Pass 0
+        shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass0Kernel.pipeline)
+        cursor = spy.ShaderCursor(shader_object)
+
+        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
+        cursor.gPositionTexture = posTex
+        cursor.gNormalTexture = normalTex
+        cursor.gDiffuseTexture = diffuseTex
+        cursor.gSpecularTexture = specularTex
+        cursor.gOutputTexture = resultTex
+
+        pass_encoder.dispatch(spy.uint3(int(screen_width / 4), int(screen_height / 4), 1))
+
+        # Pass 1
+        shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass1Kernel.pipeline)
+        cursor = spy.ShaderCursor(shader_object)
+
+        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
+        cursor.gPositionTexture = posTex
+        cursor.gNormalTexture = normalTex
+        cursor.gDiffuseTexture = diffuseTex
+        cursor.gSpecularTexture = specularTex
+        cursor.gOutputTexture = resultTex
+        
+        pass_encoder.dispatch(spy.uint3(int(screen_width / 4), int(screen_height / 4), 1))
+
+        # Pass 2
+        shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass2Kernel.pipeline)
+        cursor = spy.ShaderCursor(shader_object)
+
+        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
+        cursor.gPositionTexture = posTex
+        cursor.gNormalTexture = normalTex
+        cursor.gDiffuseTexture = diffuseTex
+        cursor.gSpecularTexture = specularTex
+        cursor.gOutputTexture = resultTex
+        
+        pass_encoder.dispatch(spy.uint3(int(screen_width / 4), int(screen_height / 4), 1))
+
+        # Pass 3
+        shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass3Kernel.pipeline)
+        cursor = spy.ShaderCursor(shader_object)
+
+        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
+        cursor.gPositionTexture = posTex
+        cursor.gNormalTexture = normalTex
+        cursor.gDiffuseTexture = diffuseTex
+        cursor.gSpecularTexture = specularTex
+        cursor.gOutputTexture = resultTex
+        
+        pass_encoder.dispatch(spy.uint3(int(screen_width / 4), int(screen_height / 4), 1))
+
+        # Pass 4
+        shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass4Kernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
 
         cursor.gScreenSize = spy.uint2(screen_width, screen_height)
