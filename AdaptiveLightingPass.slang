@@ -30,8 +30,8 @@ bool shouldShade(float3 A, float3 B, float3 C, float3 D)
     float Ymean = 0.25 * sumY;
     float Yvar = 0.25 * sumY2 - Ymean * Ymean;
     
-    const float varianceThreshold = 1e-2f;
-    return (Yvar <= varianceThreshold);
+    const float varianceThreshold = 1e-3f;
+    return (Yvar >= varianceThreshold);
 }
 
 [shader("compute")]
@@ -73,7 +73,9 @@ void processPixel(uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offse
     }
     else
     {
-        gOutputTexture[texelPosition] = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
+        gOutputTexture[texelPosition] = 
+        float4(1, 0, 0, 1); 
+        //0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
     }
 }
 

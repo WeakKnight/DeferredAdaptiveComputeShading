@@ -115,7 +115,7 @@ with command_encoder.begin_compute_pass() as pass_encoder:
     pass_encoder.dispatch([screen_width, screen_height, 1])
 
     # Lighting Pass
-    if True: 
+    if False: 
         # Coherent
         shader_object = pass_encoder.bind_pipeline(lightingPassKernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
