@@ -2,7 +2,7 @@ import Shading;
 
 #define VIS_INTERP_AREA 0
 
-enum WarpMode
+enum WaveMode
 {
     Shade = 0,
     Interpolate = 1
@@ -128,7 +128,7 @@ struct Payload
 
 groupshared uint gShadeCount[2];
 groupshared uint gShadePrefix[2]; // [0] = 0, [1] = gShadeCount[0]
-groupshared Payload gBuf[64];
+groupshared Payload gPayload[64];
 
 #if 0
 void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offsetC, uint2 offsetD)
@@ -147,13 +147,27 @@ void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, 
     float4 neighbor3 = gOutputTexture[texelPosition + offsetD];
     float4 interpolatedResult = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
 
-    bool isShade = shouldShade(neighbor0.rgb, neighbor1.rgb, neighbor2.rgb, neighbor3.rgb) ? WarpMode::Shade : WarpMode::Interpolate;
+    bool isShade = shouldShade(neighbor0.rgb, neighbor1.rgb, neighbor2.rgb, neighbor3.rgb);
     uint idxInWave, shadeCountWave;
     WavePartition2(isShade, idxInWave, shadeCountWave);
-
-    // 记录每个 wave 的 shade 数
-    if (lane == 0) gShadeCount[waveId] = shadeCountWave;
+    if (lane == 0)
+    { 
+        gShadeCount[waveId] = shadeCountWave;
+    }
     GroupMemoryBarrierWithGroupSync();
+    uint totalShadeCount = gShadeCount[0] + gShadeCount[1];
+
+    Payload payload;
+    payload.linearPixelIndex = texelPosition.x + texelPosition.y * gScreenSize.x;
+    payload.interpolatedResult = interpolatedResult.rgb;
+    gPayload[waveId * 32 + idxInWave] = payload;
+    
+    // 100% occupancy wave
+    if (waveId == 0)
+    {
+        WaveMode mode = totalShadeCount >= 32 ? WaveMode.Shade : WaveMode.Interpolate;
+    }
+    
 }
 #else
 void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offsetC, uint2 offsetD)
