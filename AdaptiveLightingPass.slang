@@ -1,5 +1,7 @@
 import Shading;
 
+#define VIS_INTERP_AREA 0
+
 uniform uint2 gScreenSize;
 
 RWTexture2D<float4> gOutputTexture;
@@ -34,34 +36,13 @@ bool shouldShade(float3 A, float3 B, float3 C, float3 D)
     return (Yvar >= varianceThreshold);
 }
 
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void pass1(uint2 tid: SV_DispatchThreadID)
+void processPixel(uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offsetC, uint2 offsetD)
 {
-    uint2 blockBase = tid * 4;
-    uint2 texelPosition = blockBase + uint2(2, 2);
     if (any(texelPosition >= gScreenSize))
     {
         return;
     }
-
-    float4 neighbor0 = gOutputTexture[texelPosition + uint2(2, 2)];
-    float4 neighbor1 = gOutputTexture[texelPosition + uint2(-2, 2)];
-    float4 neighbor2 = gOutputTexture[texelPosition + uint2(2, -2)];
-    float4 neighbor3 = gOutputTexture[texelPosition + uint2(-2, -2)];
-
-    if (shouldShade(neighbor0.rgb, neighbor1.rgb, neighbor2.rgb, neighbor3.rgb))
-    {
-        gOutputTexture[texelPosition] = shade(texelPosition);
-    }
-    else
-    {
-        gOutputTexture[texelPosition] = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
-    }
-}
-
-void processPixel(uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offsetC, uint2 offsetD)
-{
+    
     float4 neighbor0 = gOutputTexture[texelPosition + offsetA];
     float4 neighbor1 = gOutputTexture[texelPosition + offsetB];
     float4 neighbor2 = gOutputTexture[texelPosition + offsetC];
@@ -73,10 +54,21 @@ void processPixel(uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offse
     }
     else
     {
-        gOutputTexture[texelPosition] = 
-        float4(1, 0, 0, 1); 
-        //0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
+#if VIS_INTERP_AREA
+        gOutputTexture[texelPosition] = float4(1, 0, 0, 1);
+#else
+        gOutputTexture[texelPosition] = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
+#endif
     }
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void pass1(uint2 tid: SV_DispatchThreadID)
+{
+    uint2 blockBase = tid * 4;
+    uint2 texelPosition = blockBase + uint2(2, 2);
+    processPixel(texelPosition, uint2(2, 2), uint2(-2, 2), uint2(2, -2), uint2(-2, -2));
 }
 
 [shader("compute")]
