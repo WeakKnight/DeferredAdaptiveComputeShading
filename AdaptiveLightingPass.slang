@@ -1,4 +1,5 @@
 import Shading;
+import Utils;
 
 #define VIS_INTERP_AREA 0
 
@@ -42,14 +43,6 @@ bool shouldShade(float3 A, float3 B, float3 C, float3 D)
     return (Yvar >= varianceThreshold);
 }
 
-void WavePartition2(bool isTrue, out uint newLaneIndex, out uint trueCount)
-{
-    trueCount = WaveActiveCountBits(isTrue);
-    uint trueBefore = WavePrefixCountBits(isTrue);
-    uint lane = WaveGetLaneIndex();
-    uint falseBefore = lane - trueBefore;
-    newLaneIndex = isTrue ? trueBefore : (trueCount + falseBefore);
-}
 
 struct Payload
 {
