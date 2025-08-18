@@ -1,9 +1,16 @@
 import slangpy as spy
 import numpy as np
 import imageio
+import argparse
 from pathlib import Path
 
 EXAMPLE_DIR = Path(__file__).parent
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Deferred Adaptive Compute Shading')
+    parser.add_argument('-reference', '--reference', action='store_true',
+                       help='Use traditional coherent deferred rendering (default: adaptive)')
+    return parser.parse_args()
 
 def loadImageData(path, w, h):
     imageData = imageio.v3.imread(path)
@@ -13,15 +20,17 @@ def loadImageData(path, w, h):
         imageData = np.concatenate([imageData, np.ones((w, h, 1), dtype=np.uint8) * 255], axis=2)
     return imageData
 
+args = parse_args()
+
 device = spy.Device(
     enable_debug_layers=True,
     compiler_options={"include_paths": [EXAMPLE_DIR]},
 )
 
-gbufferPassProgram = device.load_program("GBufferPass.slang", ["main"])
+gbufferPassProgram = device.load_program("GBufferPass.slang", ["GBufferPass"])
 gbufferPassKernel = device.create_compute_kernel(gbufferPassProgram)
 
-lightingPassProgram = device.load_program("LightingPass.slang", ["main"])
+lightingPassProgram = device.load_program("LightingPass.slang", ["LightingPass"])
 lightingPassKernel = device.create_compute_kernel(lightingPassProgram)
 
 adaptiveLightingPass0Program = device.load_program("AdaptiveLightingPass.slang", ["pass0"])
@@ -115,7 +124,7 @@ with command_encoder.begin_compute_pass() as pass_encoder:
     pass_encoder.dispatch([screen_width, screen_height, 1])
 
     # Lighting Pass
-    if False: 
+    if args.reference: 
         # Coherent
         shader_object = pass_encoder.bind_pipeline(lightingPassKernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
@@ -205,4 +214,5 @@ with command_encoder.begin_compute_pass() as pass_encoder:
 device.submit_command_buffer(command_encoder.finish())
 device.wait_for_idle()
 
-imageio.imwrite("Result.png", resultTex.to_numpy())
+output_filename = "Reference.png" if args.reference else "Result.png"
+imageio.imwrite(output_filename, resultTex.to_numpy())

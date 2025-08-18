@@ -10,7 +10,16 @@ This is a deferred adaptive compute shading research project that implements an 
 
 ### Running the Application
 ```bash
-python EntryPoint.py
+# Adaptive deferred rendering (default)
+python3 EntryPoint.py
+
+# Traditional coherent deferred rendering
+python3 EntryPoint.py -reference
+# or
+python3 EntryPoint.py --reference
+
+# Help
+python3 EntryPoint.py --help
 ```
 This will execute the complete rendering pipeline and output `Result.png`.
 
@@ -74,8 +83,8 @@ The algorithm works by:
 
 ## Key Configuration
 
-- Screen resolution: 1920x1080 (configurable in EntryPoint.py:38-39)
-- Adaptive mode toggle: EntryPoint.py:118 (set to `False` for coherent, `True` for adaptive)
+- Screen resolution: 1920x1080 (configurable in EntryPoint.py)
+- Rendering mode: Use `-reference` flag for coherent rendering, default is adaptive
 - Variance threshold: AdaptiveLightingPass.slang:41 (controls interpolation sensitivity)
 
 ## Development Notes

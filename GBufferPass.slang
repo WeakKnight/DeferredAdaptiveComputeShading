@@ -9,7 +9,7 @@ RWTexture2D<float4> gSpecularTexture;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void main(uint2 tid: SV_DispatchThreadID)
+void GBufferPass(uint2 tid: SV_DispatchThreadID)
 {
     if (any(tid >= iResolution))
     {
