@@ -27,4 +27,3 @@ void testWavePrefixCountBits(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupT
     uint activeCount = _WavePrefixCountBits(active);
     gOutputBuffer[tid] = activeCount;
 }
- 

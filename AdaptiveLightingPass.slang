@@ -2,6 +2,7 @@ import Shading;
 import Utils;
 
 #define VIS_INTERP_AREA 0
+#define WAVE_SIZE 32
 
 enum WaveMode
 {
@@ -50,7 +51,7 @@ struct Payload
     uint linearPixelIndex;
 };
 
-groupshared Payload gPayload[32];
+groupshared Payload gPayload[WAVE_SIZE];
 
 #if 0
 void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offsetC, uint2 offsetD)
@@ -120,7 +121,7 @@ void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, 
 #endif
 
 [shader("compute")]
-[numthreads(32, 1, 1)]
+[numthreads(WAVE_SIZE, 1, 1)]
 void pass1(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
     uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
@@ -130,7 +131,7 @@ void pass1(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 }
 
 [shader("compute")]
-[numthreads(32, 1, 1)]
+[numthreads(WAVE_SIZE, 1, 1)]
 void pass2(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
     uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
@@ -148,7 +149,7 @@ void pass2(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 }
 
 [shader("compute")]
-[numthreads(32, 1, 1)]
+[numthreads(WAVE_SIZE, 1, 1)]
 void pass3(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
     uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
@@ -176,7 +177,7 @@ void pass3(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 }
 
 [shader("compute")]
-[numthreads(32, 1, 1)]
+[numthreads(WAVE_SIZE, 1, 1)]
 void pass4(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
     uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
