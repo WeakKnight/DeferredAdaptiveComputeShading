@@ -1,5 +1,7 @@
 # Adaptive Deferred Shading
 
+![image](teaser.png)
+
 ## Algorithm Overview
 ⬜: shading pixel
 🟩: shaded pixel

@@ -1,7 +1,7 @@
 import Shading;
 import Utils;
 
-#define VIS_INTERP_AREA 0
+#define VIS_INTERP_AREA 1
 #define WAVE_SIZE 32
 
 enum WaveMode
@@ -105,17 +105,38 @@ void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, 
     float4 neighbor2 = gOutputTexture[texelPosition + offsetC];
     float4 neighbor3 = gOutputTexture[texelPosition + offsetD];
 
-    if (shouldShade(neighbor0.rgb, neighbor1.rgb, neighbor2.rgb, neighbor3.rgb))
+    bool _shouldShade = shouldShade(neighbor0.rgb, neighbor1.rgb, neighbor2.rgb, neighbor3.rgb);
+
+#if VIS_INTERP_AREA
+    // Divider
+    if (abs(texelPosition.x - (gScreenSize.x / 3)) <= 2 || abs(texelPosition.x - (2 * gScreenSize.x / 3)) <= 2)
+    {
+        gOutputTexture[texelPosition] = float4(0, 0, 0, 1);
+        return;
+    }
+
+    if (texelPosition.x < (gScreenSize.x / 3))
+    {
+        _shouldShade = true;
+    }
+#endif
+
+    if (_shouldShade)
     {
         gOutputTexture[texelPosition] = shade(texelPosition);
     }
     else
     {
 #if VIS_INTERP_AREA
-        gOutputTexture[texelPosition] = float4(1, 0, 0, 1);
-#else
-        gOutputTexture[texelPosition] = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
+        if (texelPosition.x > (2 * gScreenSize.x / 3))
+        {
+            gOutputTexture[texelPosition] = float4(1, 0, 0, 1);
+        }
+        else
 #endif
+        {
+            gOutputTexture[texelPosition] = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
+        }
     }
 }
 #endif
