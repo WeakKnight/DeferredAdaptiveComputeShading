@@ -2,6 +2,9 @@
 
 ![image](teaser.png)
 
+An adaptive deferred shading implementation based on the paper [Deferred Adaptive Compute Shading
+](https://dl.acm.org/doi/10.1145/3231578.3232160)
+
 ## Algorithm Overview
 ⬜: shading pixel
 🟩: shaded pixel
