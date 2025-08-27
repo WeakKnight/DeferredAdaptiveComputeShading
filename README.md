@@ -35,7 +35,7 @@ Access Pattern:
 1. Compute Block Idx <br/>
 2. Apply Pixel Offset <br/>
 3. Derive Statistics Property <br/>
-3. Interpolate Or Shade Target Pixel
+4. Interpolate Or Shade The Target Pixel Based On Stats Info.
 
 Interpolate between neighbors if (i + 2, j + 2), (i - 2, j + 2), (i + 2, j - 2), (i - 2, j - 2) are similar.
 
@@ -66,9 +66,9 @@ Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 8
 
 Interpolate between neighbors if (i + 1, j), (i - 1, j), (i, j - 1), (i, j + 1) are similar.
 
-### Pixel Smilarity Definition
+### Pixel Similarity Definition
 
-Given 4 pixels, they are similar if the variance is higher than threshold.
+Given 4 pixels, they are similar if the variance is lower than the threshold.
 
 ### Wave Sorting
 ⬜: shading
@@ -83,7 +83,7 @@ Assume Warp Size = 16
 
 Total Shading Count WaveActiveCountBits(shading) = 13,
 
-Given thread 10, srcLaneIdx = 10, WavePrefixCountBits(shading) = 7 (not including self),
+Given thread 10, srcLaneIdx = 10, WavePrefixCountBits(shading) = 7 (not including itself),
 
 interpolation before thread 10 is srcLaneIdx - WavePrefixCountBits(shading) = 3
 
@@ -112,7 +112,7 @@ srcLaneIdx = 10, dstLaneIdx = 7
 > srcLaneIdx = 14, WavePrefixCountBits(shading) = 11, dstLaneIdx = 11 <br/>
 > srcLaneIdx = 15, WavePrefixCountBits(shading) = 12, dstLaneIdx = 12 <br/>
 
-### Multi Wave Sorting
+### Multi-Wave Sorting
 
 ⬜: shading
 🟩: interpolation
