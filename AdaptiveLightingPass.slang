@@ -24,18 +24,12 @@ void pass0(uint2 tid: SV_DispatchThreadID)
 
 bool shouldShade(float3 A, float3 B, float3 C, float3 D)
 {
-    float Y0 = dot(A, float3(0.25, 0.5, 0.25));
-    float Y1 = dot(B, float3(0.25, 0.5, 0.25));
-    float Y2 = dot(C, float3(0.25, 0.5, 0.25));
-    float Y3 = dot(D, float3(0.25, 0.5, 0.25));
+    float3 mean   = 0.25 * (A + B + C + D);
+    float3 sqMean = 0.25 * (A * A + B * B + C * C + D * D);
+    float3 var    = sqMean - mean * mean;
 
-    float sumY = Y0 + Y1 + Y2 + Y3;
-    float sumY2 = Y0 * Y0 + Y1 * Y1 + Y2 * Y2 + Y3 * Y3;
-    float Ymean = 0.25 * sumY;
-    float Yvar = 0.25 * sumY2 - Ymean * Ymean;
-    
-    const float varianceThreshold = 1e-3f;
-    return (Yvar >= varianceThreshold);
+    const float varianceThreshold = 5e-4f;
+    return any(var >= varianceThreshold);
 }
 
 // ---------------------------------------------------------------------------
