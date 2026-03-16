@@ -64,6 +64,14 @@ interface IShadeTask
     void RunChild(bool bActive, uint SourceLane, uint LocalItemIndex);
 };
 
+// Local wave-level work distribution from Brian Karis.
+// Ref: https://graphicrants.blogspot.com/2026/03/variable-sized-work.html
+//
+// Each lane produces a variable number of work items (NumWorkItems).
+// Items are prefix-summed into a contiguous queue and consumed in
+// wave-sized batches so every lane stays productive. Producer state
+// is read from groupshared memory (gProducerBase / gProducerMask)
+// rather than via WaveReadLaneAt on struct members.
 void DistributeWork<T : IShadeTask>(T task, uint GroupIndex, uint NumWorkItems)
 {
     const uint LaneCount   = WAVE_SIZE;

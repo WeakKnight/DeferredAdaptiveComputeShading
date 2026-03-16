@@ -2,7 +2,7 @@
 
 ![image](teaser.png)
 
-An adaptive deferred shading implementation based on the paper [Deferred Adaptive Compute Shading](https://dl.acm.org/doi/10.1145/3231578.3232160), built with [Slang](https://shader-slang.com/) and [SlangPy](https://shader-slang.com/slangpy/).
+An adaptive deferred shading implementation based on the paper [Deferred Adaptive Compute Shading](https://dl.acm.org/doi/10.1145/3231578.3232160), with wave-level work distribution inspired by Brian Karis's [Variable Sized Work](https://graphicrants.blogspot.com/2026/03/variable-sized-work.html). Built with [Slang](https://shader-slang.com/) and [SlangPy](https://shader-slang.com/slangpy/).
 
 ## Algorithm Overview
 
