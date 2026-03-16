@@ -4,6 +4,12 @@
 
 An adaptive deferred shading implementation based on the paper [Deferred Adaptive Compute Shading](https://dl.acm.org/doi/10.1145/3231578.3232160), with wave-level work distribution inspired by Brian Karis's [Variable Sized Work](https://graphicrants.blogspot.com/2026/03/variable-sized-work.html). Built with [Slang](https://shader-slang.com/) and [SlangPy](https://shader-slang.com/slangpy/).
 
+### Improvements over the original paper
+
+The original paper uses a **global atomic counter + groupshared ring queue** state machine: a single dispatch serves all pixels, thread groups compete on an `InterlockedAdd` to claim work, and alternate between SEARCH (evaluate & enqueue) and SHADE (drain queue) phases. This introduces cross-group atomic contention, heavy barriers (`DeviceMemoryBarrierWithGroupSync`), and large groupshared footprint for storing full pixel coordinates.
+
+We replace this with Brian Karis's **DistributeWork** pattern — a lightweight wave-local producer-consumer model. Each lane evaluates its own pixels, records a shade count, and a single `WavePrefixSum` compacts all work items into a contiguous queue consumed in wave-sized batches. This eliminates global atomics entirely, replaces heavy barriers with native wave intrinsics (`WavePrefixSum`, `WaveReadLaneAt`, `WaveActiveBallot`), and reduces groupshared usage from a coordinate ring buffer to just two `uint[32]` arrays. Additionally, we use **per-channel RGB variance** instead of luminance-only for the shade-or-interpolate decision, catching color shifts that the original paper's scalar test would miss.
+
 ## Algorithm Overview
 
 The screen is divided into 4×4 pixel blocks. Instead of shading every pixel, we shade a sparse subset first and then decide for each remaining pixel whether it needs full shading or can be cheaply interpolated from already-computed neighbors.
