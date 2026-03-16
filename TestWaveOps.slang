@@ -1,5 +1,3 @@
-import Utils;
-
 RWStructuredBuffer<uint> gOutputBuffer;
 
 [shader("compute")]
@@ -15,7 +13,7 @@ void testWaveGetLaneIndex(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThre
 void testWaveActiveCountBits(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
     bool active = (tid % 4) == 0;
-    uint activeCount = _WaveActiveCountBits(active);
+    uint activeCount = WaveActiveCountBits(active);
     gOutputBuffer[tid] = activeCount;
 }
 
@@ -24,6 +22,6 @@ void testWaveActiveCountBits(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupT
 void testWavePrefixCountBits(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
     bool active = (tid % 4) == 0;
-    uint activeCount = _WavePrefixCountBits(active);
+    uint activeCount = WavePrefixCountBits(active);
     gOutputBuffer[tid] = activeCount;
 }

@@ -140,76 +140,51 @@ with command_encoder.begin_compute_pass() as pass_encoder:
         pass_encoder.dispatch([screen_width, screen_height, 1])
     else: 
         # Adaptive
+        gridW = screen_width // 4
+        gridH = screen_height // 4
+        superGridW = (gridW + 1) // 2
+        superGridH = (gridH + 1) // 2
+
+        def bind_gbuffer(cursor):
+            cursor.gScreenSize = spy.uint2(screen_width, screen_height)
+            cursor.gScreenGridDim = spy.uint2(gridW, gridH)
+            cursor.gPositionTexture = posTex
+            cursor.gNormalTexture = normalTex
+            cursor.gDiffuseTexture = diffuseTex
+            cursor.gSpecularTexture = specularTex
+            cursor.gOutputTexture = resultTex
 
         # Pass 0
         shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass0Kernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
+        bind_gbuffer(cursor)
+        pass_encoder.dispatch(spy.uint3(gridW, gridH, 1))
 
-        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
-        cursor.gScreenGridDim = spy.uint2(int(screen_width / 4), int(screen_height / 4))
-        cursor.gPositionTexture = posTex
-        cursor.gNormalTexture = normalTex
-        cursor.gDiffuseTexture = diffuseTex
-        cursor.gSpecularTexture = specularTex
-        cursor.gOutputTexture = resultTex
-
-        pass_encoder.dispatch(spy.uint3(int(screen_width / 4), int(screen_height / 4), 1))
-
-        # Pass 1
+        # Pass 1 (super-grid)
         shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass1Kernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
+        bind_gbuffer(cursor)
+        cursor.gSuperGridDim = spy.uint2(superGridW, superGridH)
+        pass_encoder.dispatch(spy.uint3(superGridW * superGridH, 1, 1))
 
-        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
-        cursor.gScreenGridDim = spy.uint2(int(screen_width / 4), int(screen_height / 4))
-        cursor.gPositionTexture = posTex
-        cursor.gNormalTexture = normalTex
-        cursor.gDiffuseTexture = diffuseTex
-        cursor.gSpecularTexture = specularTex
-        cursor.gOutputTexture = resultTex
-        
-        pass_encoder.dispatch(spy.uint3(int(screen_width / 4) * int(screen_height / 4), 1, 1))
-
-        # Pass 2
+        # Pass 2 (super-grid)
         shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass2Kernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
+        bind_gbuffer(cursor)
+        cursor.gSuperGridDim = spy.uint2(superGridW, superGridH)
+        pass_encoder.dispatch(spy.uint3(superGridW * superGridH, 1, 1))
 
-        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
-        cursor.gScreenGridDim = spy.uint2(int(screen_width / 4), int(screen_height / 4))
-        cursor.gPositionTexture = posTex
-        cursor.gNormalTexture = normalTex
-        cursor.gDiffuseTexture = diffuseTex
-        cursor.gSpecularTexture = specularTex
-        cursor.gOutputTexture = resultTex
-        
-        pass_encoder.dispatch(spy.uint3(int(screen_width / 4) * int(screen_height / 4), 1, 1))
-
-        # Pass 3
+        # Pass 3 (block-grid)
         shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass3Kernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
+        bind_gbuffer(cursor)
+        pass_encoder.dispatch(spy.uint3(gridW * gridH, 1, 1))
 
-        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
-        cursor.gScreenGridDim = spy.uint2(int(screen_width / 4), int(screen_height / 4))
-        cursor.gPositionTexture = posTex
-        cursor.gNormalTexture = normalTex
-        cursor.gDiffuseTexture = diffuseTex
-        cursor.gSpecularTexture = specularTex
-        cursor.gOutputTexture = resultTex
-        
-        pass_encoder.dispatch(spy.uint3(int(screen_width / 4) * int(screen_height / 4), 1, 1))
-
-        # Pass 4
+        # Pass 4 (block-grid)
         shader_object = pass_encoder.bind_pipeline(adaptiveLightingPass4Kernel.pipeline)
         cursor = spy.ShaderCursor(shader_object)
-
-        cursor.gScreenSize = spy.uint2(screen_width, screen_height)
-        cursor.gScreenGridDim = spy.uint2(int(screen_width / 4), int(screen_height / 4))
-        cursor.gPositionTexture = posTex
-        cursor.gNormalTexture = normalTex
-        cursor.gDiffuseTexture = diffuseTex
-        cursor.gSpecularTexture = specularTex
-        cursor.gOutputTexture = resultTex
-        
-        pass_encoder.dispatch(spy.uint3(int(screen_width / 4) * int(screen_height / 4), 1, 1))
+        bind_gbuffer(cursor)
+        pass_encoder.dispatch(spy.uint3(gridW * gridH, 1, 1))
     
 device.submit_command_buffer(command_encoder.finish())
 device.wait_for_idle()

@@ -2,131 +2,84 @@
 
 ![image](teaser.png)
 
-An adaptive deferred shading implementation based on the paper [Deferred Adaptive Compute Shading
-](https://dl.acm.org/doi/10.1145/3231578.3232160)
+An adaptive deferred shading implementation based on the paper [Deferred Adaptive Compute Shading](https://dl.acm.org/doi/10.1145/3231578.3232160), built with [Slang](https://shader-slang.com/) and [SlangPy](https://shader-slang.com/slangpy/).
 
 ## Algorithm Overview
-⬜: shading pixel
-🟩: shaded pixel
-⬛: unshaded pixel
 
-### Workflow
+The screen is divided into 4×4 pixel blocks. Instead of shading every pixel, we shade a sparse subset first and then decide for each remaining pixel whether it needs full shading or can be cheaply interpolated from already-computed neighbors.
 
-#### Pass 0
-⬜⬛⬛⬛<br/>
-⬛⬛⬛⬛<br/>
-⬛⬛⬛⬛<br/>
-⬛⬛⬛⬛<br/>
-Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 1
+### Pass Progression
 
-Access Pattern: 
-1. Compute Block Idx <br/>
-2. Apply Pixel Offset <br/>
-3. Shade Target Pixel
+Five passes progressively fill in all 16 pixels of each 4×4 block. Each new pixel sits at the center of 4 already-computed neighbors, enabling the shade-or-interpolate decision.
 
-#### Pass 1
-🟩⬛⬛⬛<br/>
-⬛⬛⬛⬛<br/>
-⬛⬛⬜⬛<br/>
-⬛⬛⬛⬛<br/>
-Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 1
+![Pass Progression](Docs/pass_progression.png)
 
-Access Pattern: 
-1. Compute Block Idx <br/>
-2. Apply Pixel Offset <br/>
-3. Derive Statistics Property <br/>
-4. Interpolate Or Shade The Target Pixel Based On Stats Info.
+| Pass | Pixels/block | Pixel positions | Neighbor offsets |
+|------|-------------|-----------------|------------------|
+| 0 | 1 | `(0,0)` | — (unconditional shade) |
+| 1 | 1 | `(2,2)` | `(±2, ±2)` diagonal corners |
+| 2 | 2 | `(0,2)`, `(2,0)` | `(±2, 0)`, `(0, ±2)` axis-aligned |
+| 3 | 4 | `(1,1)`, `(1,3)`, `(3,1)`, `(3,3)` | `(±1, ±1)` diagonal |
+| 4 | 8 | remaining 8 positions | `(±1, 0)`, `(0, ±1)` axis-aligned |
 
-Interpolate between neighbors if (i + 2, j + 2), (i - 2, j + 2), (i + 2, j - 2), (i - 2, j - 2) are similar.
+### Fill Order
 
-#### Pass 2
-🟩⬛⬜⬛<br/>
-⬛⬛⬛⬛<br/>
-⬜⬛🟩⬛<br/>
-⬛⬛⬛⬛<br/>
-Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 2
+Which pass fills which pixel within a 4×4 block:
 
-Interpolate between neighbors if (i + 2, j), (i - 2, j), (i, j - 2), (i, j + 2) are similar.
+![Fill Order](Docs/fill_order.png)
 
-#### Pass 3
-🟩⬛🟩⬛<br/>
-⬛⬜⬛⬜<br/>
-🟩⬛🟩⬛<br/>
-⬛⬜⬛⬜<br/>
-Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 4
+### Shade-or-Interpolate Decision
 
-Interpolate between neighbors if (i + 1, j + 1), (i - 1, j - 1), (i + 1, j - 1), (i - 1, j + 1) are similar.
+For each pixel in passes 1–4, the algorithm reads 4 already-shaded neighbors, converts them to luminance, and computes the variance. If the variance exceeds a threshold (`1e-3`), the pixel is fully shaded; otherwise it is interpolated as the average of its neighbors.
 
-#### Pass 4
-🟩⬜🟩⬜<br/>
-⬜🟩⬜🟩<br/>
-🟩⬜🟩⬜<br/>
-⬜🟩⬜🟩<br/>
-Dispatch Dimension: (Screen Width / 4) * (Screen Height / 4) * 8
+## Wave Optimization — DistributeWork
 
-Interpolate between neighbors if (i + 1, j), (i - 1, j), (i, j - 1), (i, j + 1) are similar.
+Passes 1–4 use a **DistributeWork** pattern (from Brian Karis — [Variable sized work](https://graphicrants.blogspot.com/2026/03/variable-sized-work.html)) to improve GPU wave utilization.
 
-### Pixel Similarity Definition
+The problem: within a wave of 32 threads, some threads need to shade (expensive) and others only interpolate (cheap). Naively, all 32 threads stay active for the duration of the slowest path, wasting SIMD lanes.
 
-Given 4 pixels, they are similar if the variance is lower than the threshold.
+![DistributeWork](Docs/distribute_work.png)
 
-### Wave Sorting
-⬜: shading
-🟩: interpolation
+The solution: a **producer-consumer** model using groupshared memory and wave intrinsics.
 
-Assume Warp Size = 16
+1. **Producer phase** — Each lane evaluates its pixels, determines which need shading, and stores the count. Interpolation is performed immediately.
+2. **DistributeWork** — Uses `WavePrefixSum` to compute a compact queue of all shade-work items across the wave, then distributes them evenly so every lane gets work. Producer data (block base position + shade mask) is communicated via groupshared arrays.
+3. **Consumer phase** (`RunChild`) — Each lane shades its assigned pixel, looking up the source lane's block position and selecting the correct sub-pixel via `NthSetBit`.
 
-⬜⬜⬜⬜<br/>
-⬜🟩⬜🟩<br/>
-🟩⬜|⬜|⬜<br/>
-⬜⬜⬜⬜<br/>
+### Super-Block Mapping (Pass 1 & 2)
 
-Total Shading Count WaveActiveCountBits(shading) = 13,
+Pass 1 and Pass 2 originally had only 1–2 pixels per lane, too few for DistributeWork to provide a benefit. To increase the work density, these passes use a **2×2 super-block mapping**: each lane covers a 2×2 group of 4×4 blocks (an 8×8 pixel region), raising the pixels per lane to 4 (pass 1) and 8 (pass 2).
 
-Given thread 10, srcLaneIdx = 10, WavePrefixCountBits(shading) = 7 (not including itself),
+![Super-Block Mapping](Docs/super_block.png)
 
-interpolation before thread 10 is srcLaneIdx - WavePrefixCountBits(shading) = 3
+## Project Structure
 
-dstLaneIdx = srcLaneIdx is shading? WavePrefixCountBits(shading) = 7: (WaveActiveCountBits(shading) + (srcLaneIdx - WavePrefixCountBits(shading)) = 16) = 7
+| File | Description |
+|---|---|
+| `EntryPoint.py` | Pipeline orchestration using SlangPy |
+| `AdaptiveLightingPass.slang` | Core adaptive lighting — 5 passes + DistributeWork |
+| `Shading.slang` | Deferred lighting evaluation (`shade()`) |
+| `GBufferPass.slang` | G-Buffer generation compute shader |
+| `GBuffer.slang` | G-Buffer texture declarations |
+| `LightingPass.slang` | Traditional (non-adaptive) deferred lighting reference |
+| `Elevated.slang` | Procedural terrain scene (from Shadertoy/Elevated) |
+| `Shadertoy.slang` | Shadertoy compatibility utilities |
 
-Finally,
-srcLaneIdx = 10, dstLaneIdx = 7
+## Usage
 
-> srcLaneIdx = 0, WavePrefixCountBits(shading) = 0, dstLaneIdx = 0 <br/>
-> srcLaneIdx = 1, WavePrefixCountBits(shading) = 1, dstLaneIdx = 1 <br/>
-> srcLaneIdx = 2, WavePrefixCountBits(shading) = 2, dstLaneIdx = 2 <br/>
-> srcLaneIdx = 3, WavePrefixCountBits(shading) = 3, dstLaneIdx = 3 <br/>
+```bash
+# Adaptive shading (default)
+python EntryPoint.py
 
-> srcLaneIdx = 4, WavePrefixCountBits(shading) = 4, dstLaneIdx = 4 <br/>
-> srcLaneIdx = 5, WavePrefixCountBits(shading) = 5, dstLaneIdx = 13 <br/>
-> srcLaneIdx = 6, WavePrefixCountBits(shading) = 5, dstLaneIdx = 5 <br/>
-> srcLaneIdx = 7, WavePrefixCountBits(shading) = 6, dstLaneIdx = 14 <br/>
+# Traditional deferred shading (reference)
+python EntryPoint.py -reference
+```
 
-> srcLaneIdx = 8, WavePrefixCountBits(shading) = 6, dstLaneIdx = 15 <br/>
-> srcLaneIdx = 9, WavePrefixCountBits(shading) = 6, dstLaneIdx = 6 <br/>
-> srcLaneIdx = 10, WavePrefixCountBits(shading) = 7, dstLaneIdx = 7 <br/>
-> srcLaneIdx = 11, WavePrefixCountBits(shading) = 8, dstLaneIdx = 8 <br/>
+Output is saved as `Result.png` (adaptive) or `Reference.png` (reference).
 
-> srcLaneIdx = 12, WavePrefixCountBits(shading) = 9, dstLaneIdx = 9 <br/>
-> srcLaneIdx = 13, WavePrefixCountBits(shading) = 10, dstLaneIdx = 10 <br/>
-> srcLaneIdx = 14, WavePrefixCountBits(shading) = 11, dstLaneIdx = 11 <br/>
-> srcLaneIdx = 15, WavePrefixCountBits(shading) = 12, dstLaneIdx = 12 <br/>
+### Requirements
 
-### Multi-Wave Sorting
-
-⬜: shading
-🟩: interpolation
-
-Assume Warp Size = 16
-
-#### Wave 0
-⬜⬜⬜⬜<br/>
-⬜🟩⬜🟩<br/>
-🟩⬜⬜⬜<br/>
-⬜⬜⬜⬜<br/>
-
-#### Wave 1
-⬜🟩🟩🟩<br/>
-⬜🟩⬜🟩<br/>
-🟩⬜🟩⬜<br/>
-🟩⬜🟩🟩<br/>
+- Python 3.10+
+- [SlangPy](https://shader-slang.com/slangpy/)
+- NumPy
+- imageio

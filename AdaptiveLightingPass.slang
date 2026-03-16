@@ -1,17 +1,11 @@
 import Shading;
-import Utils;
 
-#define VIS_INTERP_AREA 1
+
 #define WAVE_SIZE 32
-
-enum WaveMode
-{
-    Shade = 0,
-    Interpolate = 1
-};
 
 uniform uint2 gScreenSize;
 uniform uint2 gScreenGridDim;
+uniform uint2 gSuperGridDim;
 RWTexture2D<float4> gOutputTexture;
 
 [shader("compute")]
@@ -44,130 +38,215 @@ bool shouldShade(float3 A, float3 B, float3 C, float3 D)
     return (Yvar >= varianceThreshold);
 }
 
+// ---------------------------------------------------------------------------
+// DistributeWork infrastructure
+// ---------------------------------------------------------------------------
 
-struct Payload
+groupshared uint WorkBatch[WAVE_SIZE];
+groupshared uint gProducerBase[WAVE_SIZE];
+groupshared uint gProducerMask[WAVE_SIZE];
+
+uint NthSetBit(uint mask, uint n)
 {
-    float3 interpolatedResult;
-    uint linearPixelIndex;
+    for (uint i = 0; i < 32; i++)
+    {
+        if (mask & (1u << i))
+        {
+            if (n == 0) return i;
+            n--;
+        }
+    }
+    return 0;
+}
+
+interface IShadeTask
+{
+    void RunChild(bool bActive, uint SourceLane, uint LocalItemIndex);
 };
 
-groupshared Payload gPayload[WAVE_SIZE];
-
-#if 0
-void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offsetC, uint2 offsetD)
+void DistributeWork<T : IShadeTask>(T task, uint GroupIndex, uint NumWorkItems)
 {
-    if (any(texelPosition >= gScreenSize))
+    const uint LaneCount   = WAVE_SIZE;
+    const uint LaneIndex   = GroupIndex & (LaneCount - 1);
+    const uint QueueOffset = GroupIndex & ~(LaneCount - 1);
+
+    uint FirstWorkItem  = WavePrefixSum(NumWorkItems);
+    uint TotalWorkItems = WaveReadLaneAt(FirstWorkItem + NumWorkItems, LaneCount - 1);
+
+    uint SourceData = (FirstWorkItem << 8) | LaneIndex;
+
+    for (uint BatchFirstItem = 0; BatchFirstItem < TotalWorkItems; BatchFirstItem += LaneCount)
     {
-        return;
-    }
+        uint ItemIndex = BatchFirstItem + LaneIndex;
 
-    const uint waveId = gtid.x >> 5; // 0 or 1
-    const uint lane = WaveGetLaneIndex();   // 0..31
+        WorkBatch[GroupIndex] = 0xFFFFFFFFu;
+        GroupMemoryBarrier();
 
-    float4 neighbor0 = gOutputTexture[texelPosition + offsetA];
-    float4 neighbor1 = gOutputTexture[texelPosition + offsetB];
-    float4 neighbor2 = gOutputTexture[texelPosition + offsetC];
-    float4 neighbor3 = gOutputTexture[texelPosition + offsetD];
-    float4 interpolatedResult = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
-
-    bool isShade = shouldShade(neighbor0.rgb, neighbor1.rgb, neighbor2.rgb, neighbor3.rgb);
-    uint idxInWave, shadeCountWave;
-    WavePartition2(isShade, idxInWave, shadeCountWave);
-    if (lane == 0)
-    { 
-        gShadeCount[waveId] = shadeCountWave;
-    }
-    GroupMemoryBarrierWithGroupSync();
-    uint totalShadeCount = gShadeCount[0] + gShadeCount[1];
-
-    Payload payload;
-    payload.linearPixelIndex = texelPosition.x + texelPosition.y * gScreenSize.x;
-    payload.interpolatedResult = interpolatedResult.rgb;
-    gPayload[waveId * 32 + idxInWave] = payload;
-    
-    // 100% occupancy wave
-    if (waveId == 0)
-    {
-        WaveMode mode = totalShadeCount >= 32 ? WaveMode.Shade : WaveMode.Interpolate;
-    }
-    
-}
-#else
-void processPixel(uint gtid, uint2 texelPosition, uint2 offsetA, uint2 offsetB, uint2 offsetC, uint2 offsetD)
-{
-    if (any(texelPosition >= gScreenSize))
-    {
-        return;
-    }
-
-    float4 neighbor0 = gOutputTexture[texelPosition + offsetA];
-    float4 neighbor1 = gOutputTexture[texelPosition + offsetB];
-    float4 neighbor2 = gOutputTexture[texelPosition + offsetC];
-    float4 neighbor3 = gOutputTexture[texelPosition + offsetD];
-
-    bool _shouldShade = shouldShade(neighbor0.rgb, neighbor1.rgb, neighbor2.rgb, neighbor3.rgb);
-
-#if VIS_INTERP_AREA
-    // Divider
-    if (abs(texelPosition.x - (gScreenSize.x / 3)) <= 2 || abs(texelPosition.x - (2 * gScreenSize.x / 3)) <= 2)
-    {
-        gOutputTexture[texelPosition] = float4(0, 0, 0, 1);
-        return;
-    }
-
-    if (texelPosition.x < (gScreenSize.x / 3))
-    {
-        _shouldShade = true;
-    }
-#endif
-
-    if (_shouldShade)
-    {
-        gOutputTexture[texelPosition] = shade(texelPosition);
-    }
-    else
-    {
-#if VIS_INTERP_AREA
-        if (texelPosition.x > (2 * gScreenSize.x / 3))
+        if (NumWorkItems > 0u)
         {
-            gOutputTexture[texelPosition] = float4(1, 0, 0, 1);
+            int FirstItemLane = int(FirstWorkItem - BatchFirstItem);
+            if (FirstItemLane < (int)LaneCount && FirstItemLane + (int)NumWorkItems - 1 >= 0)
+                WorkBatch[QueueOffset + max(FirstItemLane, 0)] = SourceData;
         }
-        else
-#endif
-        {
-            gOutputTexture[texelPosition] = 0.25 * (neighbor0 + neighbor1 + neighbor2 + neighbor3);
-        }
+
+        GroupMemoryBarrier();
+
+        uint BatchValue = WorkBatch[GroupIndex];
+        uint BatchMask  = WaveActiveBallot(BatchValue != 0xFFFFFFFFu).x;
+        uint bitsForLane = BatchMask & ~(0xFFFFFFFEu << LaneIndex);
+        uint BatchLane  = bitsForLane != 0 ? firstbithigh(bitsForLane) : 0;
+        uint SourceValue    = WaveReadLaneAt(BatchValue, BatchLane);
+        uint SourceLane     = SourceValue & 0xFFu;
+        uint LocalItemIndex = ItemIndex - (SourceValue >> 8);
+        bool bActive        = ItemIndex < TotalWorkItems;
+
+        task.RunChild(bActive, SourceLane, LocalItemIndex);
     }
 }
-#endif
+
+// ---------------------------------------------------------------------------
+// Pass 1 — 2x2 super-block, 4 pixels/lane
+// ---------------------------------------------------------------------------
+
+static const uint2 kBlockOffsets[4] = { uint2(0,0), uint2(4,0), uint2(0,4), uint2(4,4) };
+static const int2 kPass1NeighborOffsets[4] = { int2(2,2), int2(-2,2), int2(2,-2), int2(-2,-2) };
+
+struct Pass1Task : IShadeTask
+{
+    void RunChild(bool bActive, uint SourceLane, uint LocalItemIndex)
+    {
+        if (!bActive) return;
+        uint2 base = uint2(gProducerBase[SourceLane] & 0xFFFF, gProducerBase[SourceLane] >> 16);
+        uint bitIdx = NthSetBit(gProducerMask[SourceLane], LocalItemIndex);
+        uint2 texelPos = base + kBlockOffsets[bitIdx] + uint2(2, 2);
+        gOutputTexture[texelPos] = shade(texelPos);
+    }
+};
 
 [shader("compute")]
 [numthreads(WAVE_SIZE, 1, 1)]
 void pass1(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
-    uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
-    uint2 blockBase = tid2d * 4;
-    uint2 texelPosition = blockBase + uint2(2, 2);
-    processPixel(gtid, texelPosition, uint2(2, 2), uint2(-2, 2), uint2(2, -2), uint2(-2, -2));
+    uint2 tid2d = uint2(tid % gSuperGridDim.x, tid / gSuperGridDim.x);
+    uint2 superBase = tid2d * 8;
+
+    uint shadeMask = 0;
+    uint numShadeItems = 0;
+
+    [unroll]
+    for (uint i = 0; i < 4; i++)
+    {
+        uint2 pos = superBase + kBlockOffsets[i] + uint2(2, 2);
+        if (any(pos >= gScreenSize)) continue;
+
+        float4 n0 = gOutputTexture[pos + kPass1NeighborOffsets[0]];
+        float4 n1 = gOutputTexture[pos + kPass1NeighborOffsets[1]];
+        float4 n2 = gOutputTexture[pos + kPass1NeighborOffsets[2]];
+        float4 n3 = gOutputTexture[pos + kPass1NeighborOffsets[3]];
+
+        bool needsShade = shouldShade(n0.rgb, n1.rgb, n2.rgb, n3.rgb);
+
+        if (needsShade)
+        {
+            shadeMask |= (1u << i);
+            numShadeItems++;
+        }
+        else
+        {
+            gOutputTexture[pos] = 0.25 * (n0 + n1 + n2 + n3);
+        }
+    }
+
+    gProducerBase[gtid] = superBase.x | (superBase.y << 16);
+    gProducerMask[gtid] = shadeMask;
+
+    Pass1Task task;
+    DistributeWork(task, gtid, numShadeItems);
 }
+
+// ---------------------------------------------------------------------------
+// Pass 2 — 2x2 super-block, 8 pixels/lane
+// ---------------------------------------------------------------------------
+
+static const uint2 kPass2Pixels[8] = {
+    uint2(0,2), uint2(2,0),
+    uint2(4,2), uint2(6,0),
+    uint2(0,6), uint2(2,4),
+    uint2(4,6), uint2(6,4)
+};
+static const int2 kPass2NeighborOffsets[4] = { int2(0,2), int2(2,0), int2(0,-2), int2(-2,0) };
+
+struct Pass2Task : IShadeTask
+{
+    void RunChild(bool bActive, uint SourceLane, uint LocalItemIndex)
+    {
+        if (!bActive) return;
+        uint2 base = uint2(gProducerBase[SourceLane] & 0xFFFF, gProducerBase[SourceLane] >> 16);
+        uint bitIdx = NthSetBit(gProducerMask[SourceLane], LocalItemIndex);
+        uint2 texelPos = base + kPass2Pixels[bitIdx];
+        gOutputTexture[texelPos] = shade(texelPos);
+    }
+};
 
 [shader("compute")]
 [numthreads(WAVE_SIZE, 1, 1)]
 void pass2(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
 {
-    uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
-    uint2 blockBase = tid2d * 4;
+    uint2 tid2d = uint2(tid % gSuperGridDim.x, tid / gSuperGridDim.x);
+    uint2 superBase = tid2d * 8;
 
+    uint shadeMask = 0;
+    uint numShadeItems = 0;
+
+    [unroll]
+    for (uint i = 0; i < 8; i++)
     {
-        uint2 texelPosition = blockBase + uint2(0, 2);
-        processPixel(gtid, texelPosition, uint2(0, 2), uint2(2, 0), uint2(0, -2), uint2(-2, 0));
+        uint2 pos = superBase + kPass2Pixels[i];
+        if (any(pos >= gScreenSize)) continue;
+
+        float4 n0 = gOutputTexture[pos + kPass2NeighborOffsets[0]];
+        float4 n1 = gOutputTexture[pos + kPass2NeighborOffsets[1]];
+        float4 n2 = gOutputTexture[pos + kPass2NeighborOffsets[2]];
+        float4 n3 = gOutputTexture[pos + kPass2NeighborOffsets[3]];
+
+        bool needsShade = shouldShade(n0.rgb, n1.rgb, n2.rgb, n3.rgb);
+
+        if (needsShade)
+        {
+            shadeMask |= (1u << i);
+            numShadeItems++;
+        }
+        else
+        {
+            gOutputTexture[pos] = 0.25 * (n0 + n1 + n2 + n3);
+        }
     }
 
-    {
-        uint2 texelPosition = blockBase + uint2(2, 0);
-        processPixel(gtid, texelPosition, uint2(0, 2), uint2(2, 0), uint2(0, -2), uint2(-2, 0));
-    }
+    gProducerBase[gtid] = superBase.x | (superBase.y << 16);
+    gProducerMask[gtid] = shadeMask;
+
+    Pass2Task task;
+    DistributeWork(task, gtid, numShadeItems);
 }
+
+// ---------------------------------------------------------------------------
+// Pass 3 — 1 block/lane, 4 pixels/lane
+// ---------------------------------------------------------------------------
+
+static const uint2 kPass3Pixels[4] = { uint2(1,1), uint2(1,3), uint2(3,1), uint2(3,3) };
+static const int2 kPass3NeighborOffsets[4] = { int2(1,1), int2(-1,-1), int2(1,-1), int2(-1,1) };
+
+struct Pass3Task : IShadeTask
+{
+    void RunChild(bool bActive, uint SourceLane, uint LocalItemIndex)
+    {
+        if (!bActive) return;
+        uint2 base = uint2(gProducerBase[SourceLane] & 0xFFFF, gProducerBase[SourceLane] >> 16);
+        uint bitIdx = NthSetBit(gProducerMask[SourceLane], LocalItemIndex);
+        uint2 texelPos = base + kPass3Pixels[bitIdx];
+        gOutputTexture[texelPos] = shade(texelPos);
+    }
+};
 
 [shader("compute")]
 [numthreads(WAVE_SIZE, 1, 1)]
@@ -176,26 +255,61 @@ void pass3(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
     uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
     uint2 blockBase = tid2d * 4;
 
+    uint shadeMask = 0;
+    uint numShadeItems = 0;
+
+    [unroll]
+    for (uint i = 0; i < 4; i++)
     {
-        uint2 texelPosition = blockBase + uint2(1, 1);
-        processPixel(gtid, texelPosition, uint2(1, 1), uint2(-1, -1), uint2(1, -1), uint2(-1, 1));
+        uint2 pos = blockBase + kPass3Pixels[i];
+        if (any(pos >= gScreenSize)) continue;
+
+        float4 n0 = gOutputTexture[pos + kPass3NeighborOffsets[0]];
+        float4 n1 = gOutputTexture[pos + kPass3NeighborOffsets[1]];
+        float4 n2 = gOutputTexture[pos + kPass3NeighborOffsets[2]];
+        float4 n3 = gOutputTexture[pos + kPass3NeighborOffsets[3]];
+
+        bool needsShade = shouldShade(n0.rgb, n1.rgb, n2.rgb, n3.rgb);
+
+        if (needsShade)
+        {
+            shadeMask |= (1u << i);
+            numShadeItems++;
+        }
+        else
+        {
+            gOutputTexture[pos] = 0.25 * (n0 + n1 + n2 + n3);
+        }
     }
 
-    {
-        uint2 texelPosition = blockBase + uint2(1, 3);
-        processPixel(gtid, texelPosition, uint2(1, 1), uint2(-1, -1), uint2(1, -1), uint2(-1, 1));
-    }
+    gProducerBase[gtid] = blockBase.x | (blockBase.y << 16);
+    gProducerMask[gtid] = shadeMask;
 
-    {
-        uint2 texelPosition = blockBase + uint2(3, 1);
-        processPixel(gtid, texelPosition, uint2(1, 1), uint2(-1, -1), uint2(1, -1), uint2(-1, 1));
-    }
-
-    {
-        uint2 texelPosition = blockBase + uint2(3, 3);
-        processPixel(gtid, texelPosition, uint2(1, 1), uint2(-1, -1), uint2(1, -1), uint2(-1, 1));
-    }
+    Pass3Task task;
+    DistributeWork(task, gtid, numShadeItems);
 }
+
+// ---------------------------------------------------------------------------
+// Pass 4 — 1 block/lane, 8 pixels/lane
+// ---------------------------------------------------------------------------
+
+static const uint2 kPass4Pixels[8] = {
+    uint2(0,1), uint2(1,0), uint2(1,2), uint2(2,1),
+    uint2(2,3), uint2(3,2), uint2(0,3), uint2(3,0)
+};
+static const int2 kPass4NeighborOffsets[4] = { int2(1,0), int2(-1,0), int2(0,1), int2(0,-1) };
+
+struct Pass4Task : IShadeTask
+{
+    void RunChild(bool bActive, uint SourceLane, uint LocalItemIndex)
+    {
+        if (!bActive) return;
+        uint2 base = uint2(gProducerBase[SourceLane] & 0xFFFF, gProducerBase[SourceLane] >> 16);
+        uint bitIdx = NthSetBit(gProducerMask[SourceLane], LocalItemIndex);
+        uint2 texelPos = base + kPass4Pixels[bitIdx];
+        gOutputTexture[texelPos] = shade(texelPos);
+    }
+};
 
 [shader("compute")]
 [numthreads(WAVE_SIZE, 1, 1)]
@@ -204,43 +318,36 @@ void pass4(uint tid: SV_DispatchThreadID, uint gtid: SV_GroupThreadID)
     uint2 tid2d = uint2(tid % gScreenGridDim.x, tid / gScreenGridDim.x);
     uint2 blockBase = tid2d * 4;
 
+    uint shadeMask = 0;
+    uint numShadeItems = 0;
+
+    [unroll]
+    for (uint i = 0; i < 8; i++)
     {
-        uint2 texelPosition = blockBase + uint2(0, 1);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
+        uint2 pos = blockBase + kPass4Pixels[i];
+        if (any(pos >= gScreenSize)) continue;
+
+        float4 n0 = gOutputTexture[pos + kPass4NeighborOffsets[0]];
+        float4 n1 = gOutputTexture[pos + kPass4NeighborOffsets[1]];
+        float4 n2 = gOutputTexture[pos + kPass4NeighborOffsets[2]];
+        float4 n3 = gOutputTexture[pos + kPass4NeighborOffsets[3]];
+
+        bool needsShade = shouldShade(n0.rgb, n1.rgb, n2.rgb, n3.rgb);
+
+        if (needsShade)
+        {
+            shadeMask |= (1u << i);
+            numShadeItems++;
+        }
+        else
+        {
+            gOutputTexture[pos] = 0.25 * (n0 + n1 + n2 + n3);
+        }
     }
 
-    {
-        uint2 texelPosition = blockBase + uint2(1, 0);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
-    }
+    gProducerBase[gtid] = blockBase.x | (blockBase.y << 16);
+    gProducerMask[gtid] = shadeMask;
 
-    {
-        uint2 texelPosition = blockBase + uint2(1, 2);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
-    }
-
-    {
-        uint2 texelPosition = blockBase + uint2(2, 1);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
-    }
-
-    {
-        uint2 texelPosition = blockBase + uint2(2, 3);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
-    }
-
-    {
-        uint2 texelPosition = blockBase + uint2(3, 2);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
-    }
-
-    {
-        uint2 texelPosition = blockBase + uint2(0, 3);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
-    }
-
-    {
-        uint2 texelPosition = blockBase + uint2(3, 0);
-        processPixel(gtid, texelPosition, uint2(1, 0), uint2(-1, 0), uint2(0, 1), uint2(0, -1));
-    }
+    Pass4Task task;
+    DistributeWork(task, gtid, numShadeItems);
 }
